@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+    function isDateKey(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Each signed-in user can only read and write their own events.
+    match /users/{userId}/events/{eventId} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId) && validEvent(request.resource.data);
+    }
+
+    // Your hand-made order for a day: { ids: [event ids] }, one document per date.
+    match /users/{userId}/dayOrders/{day} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.ids is list
+        && request.resource.data.ids.size() <= 500;
+    }
+
+    // Settings shared by your devices (your categories).
+    match /users/{userId}/settings/{doc} {
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['categories'])
+        && (!('categories' in request.resource.data)
+            || (request.resource.data.categories is list
+                && request.resource.data.categories.size() <= 30));
+    }
+
+    // title + date are required; everything else is optional.
+    function validEvent(data) {
+      return data.keys().hasOnly(['title', 'date', 'endDate', 'repeat', 'exceptions',
+                                  'done', 'doneDates', 'category', 'someday', 'createdAt'])
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 500
+        // A dated event, or a Someday to-do (no date, no end date, no repeat).
+        && (isDateKey(data.get('date', null))
+            || (data.get('someday', false) == true
+                && !('date' in data) && !('endDate' in data) && !('repeat' in data)))
+        && (!('someday' in data) || data.someday is bool)
+        && (!('endDate' in data) || (isDateKey(data.endDate) && data.endDate > data.date))
+        && (!('repeat' in data) || validRepeat(data.repeat))
+        && (!('exceptions' in data) || (data.exceptions is list && data.exceptions.size() <= 2000))
+        && (!('done' in data) || data.done is bool)
+        && (!('doneDates' in data) || (data.doneDates is list && data.doneDates.size() <= 5000))
+        && (!('category' in data) || (data.category is string && data.category.size() <= 40))
+        && (!('createdAt' in data) || data.createdAt is number);
+    }
+
+    function validRepeat(r) {
+      return r is map
+        && r.keys().hasOnly(['freq', 'interval', 'days', 'until'])
+        && r.freq in ['daily', 'weekly', 'monthly', 'yearly']
+        && r.interval is int && r.interval >= 1 && r.interval <= 99
+        && (!('days' in r) || (r.days is list && r.days.size() <= 7))
+        && (!('until' in r) || r.until == null || isDateKey(r.until));
+    }
+  }
+}

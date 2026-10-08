@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>My Calendar</title>
+  <meta name="description" content="Personal planner and to-do calendar">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Calendar">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <script>
+    // Apply the saved theme before the page draws, so there's no flash of the wrong colors.
+    try {
+      var t = localStorage.getItem("calendar.theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="nav">
+      <button class="icon-btn" id="prev" aria-label="Previous">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+      <h1 id="title" class="title">&nbsp;</h1>
+      <button class="icon-btn" id="next" aria-label="Next">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+    <div class="tools">
+      <button class="icon-btn someday-btn" id="someday-btn" aria-label="Someday list" title="Someday: to-dos without a date (S)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13v6H4zM4 13h5l1 2h4l1-2h5"/></svg>
+        <span class="badge" id="someday-count" hidden></span>
+      </button>
+      <button class="icon-btn" id="search-btn" aria-label="Search events" title="Search (/)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4"/></svg>
+      </button>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="menu-btn" aria-label="More options" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
+        </button>
+        <div class="menu" id="menu" role="menu" hidden>
+          <button role="menuitem" id="menu-categories">Categories…</button>
+          <button role="menuitem" id="menu-print">Print preview…</button>
+          <button role="menuitem" id="menu-export">Export to Google / Apple Calendar (.ics)</button>
+          <hr class="menu-sep">
+          <button role="menuitem" id="menu-compact">Compact view: Off</button>
+          <button role="menuitem" id="menu-weeknums">Week numbers: On</button>
+          <button role="menuitem" id="menu-theme">Theme: Auto</button>
+          <button role="menuitem" id="menu-account" hidden>Sign out</button>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="segmented views" role="tablist" aria-label="View">
+        <button role="tab" id="view-month" aria-selected="true">Month</button>
+        <button role="tab" id="view-week" aria-selected="false">Week</button>
+        <button role="tab" id="view-year" aria-selected="false">Year</button>
+        <button role="tab" id="view-agenda" aria-selected="false">Agenda</button>
+      </div>
+      <button class="btn" id="today">Today</button>
+    </div>
+  </header>
+
+  <!-- Print preview toolbar (the title also prints at the top of the page) -->
+  <div class="print-bar" id="print-bar" hidden>
+    <h1 class="print-title" id="print-title"></h1>
+    <div class="print-actions">
+      <span class="muted small print-tip">Tip: choose Landscape for Month and Week.</span>
+      <button class="btn ghost" type="button" id="print-close">Close</button>
+      <button class="btn primary" type="button" id="print-go">Print</button>
+    </div>
+  </div>
+
+  <div class="banner" id="demo-banner" hidden>
+    Demo mode: events are saved on this device only. Follow README.md to turn on syncing.
+  </div>
+
+  <main id="main">
+    <section id="signin" class="signin" hidden>
+      <img src="icon.svg" alt="" width="64" height="64">
+      <h2>My Calendar</h2>
+      <p>Sign in to see your events on every device.</p>
+      <button class="btn primary" id="signin-btn">Sign in with Google</button>
+    </section>
+    <section id="calendar" aria-live="polite"></section>
+  </main>
+
+  <button class="fab" id="fab" aria-label="Add event">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+  <aside class="panel" id="panel" aria-labelledby="panel-title" aria-hidden="true">
+    <div class="panel-grip" aria-hidden="true"></div>
+    <div class="panel-head">
+      <div>
+        <h2 id="panel-title"></h2>
+        <p id="panel-sub" class="muted"></p>
+      </div>
+      <button class="icon-btn" id="panel-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="holiday-note" id="panel-holiday" hidden>
+      <span class="holiday-tag">No school</span>
+      <span id="panel-holiday-name"></span>
+    </div>
+    <form id="panel-add" class="add-row" autocomplete="off">
+      <input id="panel-input" type="text" maxlength="500" placeholder="Add a to-do (e.g. 3pm Dentist)" aria-label="New event title">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <button class="link-btn" id="panel-multi" type="button">+ More options (days, repeat, category)…</button>
+    <p class="order-note" id="panel-repeat-note" hidden>
+      <span id="panel-repeat-text"></span> ·
+      <button class="link-btn inline" id="panel-repeat-show" type="button">Show</button>
+    </p>
+    <p class="order-note" id="panel-order" hidden>
+      In your order ·
+      <button class="link-btn inline" id="panel-order-reset" type="button">Reset to automatic</button>
+    </p>
+    <ul id="panel-list" class="event-list"></ul>
+  </aside>
+
+  <!-- Someday: to-dos without a date -->
+  <aside class="panel someday-panel" id="someday" aria-labelledby="someday-title" aria-hidden="true">
+    <div class="panel-grip" aria-hidden="true"></div>
+    <div class="panel-head">
+      <div>
+        <h2 id="someday-title">Someday</h2>
+        <p id="someday-sub" class="muted">To-dos without a date</p>
+      </div>
+      <button class="icon-btn" id="someday-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form id="someday-add" class="add-row" autocomplete="off">
+      <input id="someday-input" type="text" maxlength="500" placeholder="Add something to do someday" aria-label="New Someday to-do">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <button class="link-btn" id="someday-more" type="button">+ With a category…</button>
+    <p class="order-note">Drag <b>⋮⋮</b> onto a day to schedule it, or tap the calendar icon to pick a date.</p>
+    <ul id="someday-list" class="event-list"></ul>
+  </aside>
+
+  <!-- New event / edit event form (filled in by app.js) -->
+  <div class="modal" id="quick-add" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="quick-heading">
+      <h2 id="quick-heading">New event</h2>
+      <div id="quick-host"></div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="modal top" id="search" hidden>
+    <div class="modal-card search-card" role="dialog" aria-modal="true" aria-label="Search events">
+      <div class="search-row">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4"/></svg>
+        <input id="search-input" type="search" placeholder="Search events and categories" aria-label="Search events" autocomplete="off">
+        <button class="btn ghost" type="button" id="search-close">Close</button>
+      </div>
+      <ul id="search-results" class="search-results"></ul>
+    </div>
+  </div>
+
+  <!-- Categories -->
+  <div class="modal" id="cats" hidden>
+    <form class="modal-card" id="cats-form" role="dialog" aria-modal="true" aria-labelledby="cats-heading" autocomplete="off">
+      <h2 id="cats-heading">Categories</h2>
+      <p class="muted small">The short tag (up to 3 characters, or an emoji) shows in front of event titles. Tap a color dot to choose its color; a small gray dot marks colors another category already uses.</p>
+      <ul id="cats-list" class="cats-list"></ul>
+      <button class="link-btn" type="button" id="cats-add">+ Add category</button>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" id="cats-cancel">Cancel</button>
+        <button class="btn primary" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- "Just this one or all?" questions for repeating events -->
+  <div class="modal" id="choice" hidden>
+    <div class="modal-card choice-card" role="alertdialog" aria-modal="true" aria-labelledby="choice-title">
+      <h2 id="choice-title"></h2>
+      <p id="choice-text" class="muted"></p>
+      <div id="choice-buttons" class="choice-buttons"></div>
+    </div>
+  </div>
+
+  <!-- Shown only while dragging an event: hold it here to flip the month. -->
+  <div class="flip-zone" id="flip-prev" aria-hidden="true"><span>‹</span><small></small></div>
+  <div class="flip-zone" id="flip-next" aria-hidden="true"><span>›</span><small></small></div>
+  <div id="drag-keeper" aria-hidden="true"></div>
+
+  <div class="toast" id="toast" role="status" hidden>
+    <span id="toast-text"></span>
+    <button class="toast-btn" id="toast-action" hidden>Undo</button>
+  </div>
+</body>
+</html>
