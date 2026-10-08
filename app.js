@@ -49,6 +49,8 @@ const state = {
   selected: null,               // date key shown in the day panel
   editing: null,                // { id, draft } while an event is being edited in the panel
   store: null,
+  user: null,                   // signed-in account ({ email, … }, or { demo: true })
+  noAccess: false,              // signed in, but this account isn't allowed in (private calendar)
 };
 
 function loadPref(key, allowed, fallback) {
@@ -1588,7 +1590,7 @@ async function run(fn) {
 }
 
 function friendlyError(err) {
-  if (err?.code === "permission-denied") return "Not allowed. Check that you're signed in and the Firestore rules are up to date.";
+  if (err?.code === "permission-denied") return "Not allowed. This calendar only accepts its owner's Google account.";
   if (err?.code === "auth/unauthorized-domain") return "This site isn't on Firebase's authorized domains list yet (see README).";
   return err?.message ? `Something went wrong: ${err.message}` : "Something went wrong.";
 }
@@ -2096,6 +2098,9 @@ function setView(view) {
 // ---------- Auth / mode ----------
 
 function setAuth(user) {
+  state.user = user;
+  state.noAccess = false;
+  setSigninScreen("signin");
   const signedOut = isConfigured && !user;
   $("signin").hidden = !signedOut;
   $("calendar").hidden = signedOut;
@@ -2105,6 +2110,31 @@ function setAuth(user) {
   $("menu-account").hidden = !user || user.demo;
   if (user && !user.demo) $("menu-account").textContent = user.email ? `Sign out (${user.email})` : "Sign out";
   if (signedOut) { closePanel(); closeSomeday(); }
+}
+
+// The start screen doubles as the "private" notice: the database only lets the
+// owner's Google account in (see firestore.rules), so anyone else who signs in
+// gets this instead of a calendar full of errors.
+function setSigninScreen(mode) {
+  const screen = $("signin");
+  const email = state.user?.email;
+  screen.querySelector("h2").textContent = mode === "private" ? "This calendar is private" : "My Calendar";
+  screen.querySelector("p").textContent = mode === "private"
+    ? `You're signed in${email ? ` as ${email}` : ""}, which doesn't have access to this calendar.`
+    : "Sign in to see your events on every device.";
+  $("signin-btn").textContent = mode === "private" ? "Sign out" : "Sign in with Google";
+}
+
+function showNoAccess() {
+  if (state.noAccess) return;
+  state.noAccess = true;
+  closePanel();
+  closeSomeday();
+  setSigninScreen("private");
+  $("signin").hidden = false;
+  $("calendar").hidden = true;
+  $("fab").hidden = true;
+  document.querySelector(".topbar").classList.add("locked");
 }
 
 // ---------- Wiring ----------
@@ -2169,7 +2199,7 @@ function wire() {
   $("cats").addEventListener("click", (e) => { if (e.target === $("cats")) closeCategories(); });
   $("cats").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); closeCategories(); } });
 
-  $("signin-btn").onclick = () => run(() => state.store.signIn());
+  $("signin-btn").onclick = () => run(() => (state.noAccess ? state.store.signOut() : state.store.signIn()));
 
   $("panel-add").onsubmit = async (e) => {
     e.preventDefault();
@@ -2234,7 +2264,11 @@ initStore({
     render();
   },
   onAuth: setAuth,
-  onError: (err) => showToast(friendlyError(err)),
+  onError: (err) => {
+    // Signed in with an account the database doesn't allow: show the private notice.
+    if (err?.code === "permission-denied" && state.user && !state.user.demo) showNoAccess();
+    else showToast(friendlyError(err));
+  },
 }).then((store) => { state.store = store; }, (err) => {
   console.error(err);
   showToast("Couldn't connect. Check your internet connection and reload.");
